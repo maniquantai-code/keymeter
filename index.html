@@ -300,13 +300,42 @@
   }
 
   // ============ API helper ============
+  async function apiOnce(action, data, timeoutMs){
+    const controller = new AbortController();
+    const timer = setTimeout(function(){ controller.abort(); }, timeoutMs || 15000);
+    let text;
+    try{
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'text/plain;charset=utf-8'},
+        body: JSON.stringify(Object.assign({action:action}, data||{})),
+        signal: controller.signal
+      });
+      text = await res.text();
+    }catch(err){
+      if(err.name === 'AbortError'){
+        throw new Error('Timed out waiting for the API (Apps Script can be slow right after a deploy).');
+      }
+      throw new Error('Network error reaching the API — check API_URL and that the deployment is set to "Anyone" access.');
+    }finally{
+      clearTimeout(timer);
+    }
+    try{ return JSON.parse(text); }
+    catch(e){ throw new Error('The API did not return JSON. Raw response: ' + text.slice(0,150)); }
+  }
+
+  // Apps Script's first call after a deploy or a period of idle is
+  // often much slower than normal — retry once before giving up.
   async function api(action, data){
-    const res = await fetch(API_URL, {
-      method: 'POST',
-      headers: {'Content-Type': 'text/plain;charset=utf-8'},
-      body: JSON.stringify(Object.assign({action:action}, data||{}))
-    });
-    return res.json();
+    try{
+      return await apiOnce(action, data, 20000);
+    }catch(firstErr){
+      try{
+        return await apiOnce(action, data, 20000);
+      }catch(secondErr){
+        throw secondErr;
+      }
+    }
   }
 
   // ============ AUTH SCREEN ============
@@ -341,6 +370,7 @@
     ev.preventDefault();
     const btn = document.getElementById('loginBtn');
     btn.disabled = true; btn.textContent = 'Signing in…';
+    showAuthMsg('Contacting your Sheet — this can take a few seconds…', 'info');
     try{
       const res = await api('login', {
         email: document.getElementById('loginEmail').value.trim(),
@@ -353,7 +383,7 @@
         showAuthMsg(res.error || 'Could not sign in.');
       }
     }catch(e){
-      showAuthMsg('Could not reach the API. Check API_URL and your deployment.');
+      showAuthMsg(e.message || 'Could not reach the API.');
     }
     btn.disabled = false; btn.textContent = 'Sign in';
   });
@@ -362,6 +392,7 @@
     ev.preventDefault();
     const btn = document.getElementById('registerBtn');
     btn.disabled = true; btn.textContent = 'Creating account…';
+    showAuthMsg('Writing to your Sheet — this can take a few seconds…', 'info');
     try{
       const res = await api('register', {
         name: document.getElementById('regName').value.trim(),
@@ -376,7 +407,7 @@
         showAuthMsg(res.error || 'Could not create account.');
       }
     }catch(e){
-      showAuthMsg('Could not reach the API. Check API_URL and your deployment.');
+      showAuthMsg((e.message || 'Could not reach the API.') + ' If you retried after a timeout, check the Users tab first — it may have already been created.');
     }
     btn.disabled = false; btn.textContent = 'Create account';
   });
@@ -711,7 +742,7 @@
         updateCostLabel();
       }
     }catch(e){
-      els.ledgerList.innerHTML = '<div class="empty">Could not load your data — check your internet connection and API_URL.</div>';
+      els.ledgerList.innerHTML = '<div class="empty">Could not load your data: ' + escapeHtml(e.message || 'unknown error') + '</div>';
     }
     render();
   }
