@@ -116,6 +116,11 @@
   .notif-status{font-size:12px; color:var(--muted); margin-top:6px;}
   .notif-status.on{color:var(--mint);}
   .notif-status.off{color:var(--coral);}
+  .provider-row{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid var(--hair); font-size:13.5px;}
+  .provider-row:last-child{border-bottom:none;}
+  .provider-row .pname{font-weight:600; text-transform:capitalize;}
+  .provider-row .pkey{color:var(--muted); font-family:'IBM Plex Mono',monospace; font-size:12px;}
+  .provider-row .pactions{display:flex; gap:8px;}
   footer{text-align:center; color:var(--muted); font-size:12px; margin-top:36px;}
 
   @media (max-width:560px){
@@ -229,7 +234,21 @@
   </div>
 
   <div class="panel">
-    <h2>Usage limit &amp; alerts</h2>
+    <h2>Live usage &amp; alerts</h2>
+    <p style="font-size:12.5px; color:var(--muted); margin:-8px 0 16px;">
+      Connect a provider's admin API key to pull real spend automatically instead of typing it in.
+      Currently supported: <strong>OpenAI</strong> (needs an Admin key from
+      platform.openai.com/settings/organization/admin-keys, not a regular project key).
+    </p>
+    <div class="alerts-row" style="margin-bottom:14px;">
+      <div class="field" style="flex:0 0 130px;">
+        <label for="liveProvider">Provider</label>
+        <select id="liveProvider"><option value="openai">OpenAI</option></select>
+      </div>
+      <div class="field"><label for="liveApiKey">Admin API key</label><input type="password" id="liveApiKey" placeholder="sk-admin-…" autocomplete="off"></div>
+      <div class="field" style="flex:0 0 auto;"><button type="button" class="btn-primary" id="saveKeyBtn">Save &amp; sync</button></div>
+    </div>
+    <div id="providerList"></div>
     <div class="alerts-row">
       <div class="field"><label for="alertEmail">Notify this email when over limit</label><input type="email" id="alertEmail" placeholder="founder@yourcompany.com" autocomplete="off"></div>
       <div class="field" style="flex:0 0 auto;">
@@ -255,7 +274,7 @@
 (function(){
   // ============ CONFIG ============
   // Paste your deployed Apps Script Web app URL here (see SETUP.md):
-  const API_URL = 'https://script.google.com/macros/s/AKfycbyzumrDxo8mOQQ3sHh6Vt-O31S-IVDf9nj5Rmzg3sYuF_2v4NHuO3L-OkFJC24qnsQrPQ/exec';
+  const API_URL = 'PASTE_YOUR_DEPLOYED_WEB_APP_URL_HERE';
 
   const USER_KEY = 'keymeter_user_v1';
   const palette = ['#7C9EFF','#FFB454','#5EEAD4','#FF7A7A','#C792EA','#82D9A4','#F4A6C6','#8FB8FF'];
@@ -484,6 +503,10 @@
     enableNotifBtn: document.getElementById('enableNotifBtn'),
     notifStatus: document.getElementById('notifStatus'),
     welcomeLine: document.getElementById('welcomeLine'),
+    liveProvider: document.getElementById('liveProvider'),
+    liveApiKey: document.getElementById('liveApiKey'),
+    saveKeyBtn: document.getElementById('saveKeyBtn'),
+    providerList: document.getElementById('providerList'),
   };
 
   CURRENCIES.forEach(function(c){
@@ -514,6 +537,86 @@
         userId: session.userId, budget: budget, currency: currentCurrency,
         alertEmail: els.alertEmail.value.trim()
       });
+    }catch(e){}
+  }
+
+  async function refreshProviderList(){
+    if(!session) return;
+    try{
+      const res = await api('listProviderKeys', {userId: session.userId});
+      if(!res.ok) return;
+      els.providerList.innerHTML = '';
+      if(!res.providers.length){
+        els.providerList.innerHTML = '<div style="font-size:12.5px;color:var(--muted);padding:6px 0;">No providers connected yet.</div>';
+        return;
+      }
+      res.providers.forEach(function(pr){
+        const row = document.createElement('div');
+        row.className = 'provider-row';
+        row.innerHTML = '<div><span class="pname">'+escapeHtml(pr.provider)+'</span> <span class="pkey">'+escapeHtml(pr.maskedKey)+'</span></div>';
+        const actions = document.createElement('div');
+        actions.className = 'pactions';
+        const syncBtn = document.createElement('button');
+        syncBtn.className = 'btn-ghost'; syncBtn.textContent = 'Sync now'; syncBtn.type = 'button';
+        syncBtn.onclick = function(){ syncOneProvider(pr.provider, syncBtn); };
+        const rmBtn = document.createElement('button');
+        rmBtn.className = 'icon-btn'; rmBtn.textContent = '✕'; rmBtn.type = 'button';
+        rmBtn.onclick = function(){ removeProvider(pr.provider); };
+        actions.appendChild(syncBtn); actions.appendChild(rmBtn);
+        row.appendChild(actions);
+        els.providerList.appendChild(row);
+      });
+    }catch(e){}
+  }
+
+  async function syncOneProvider(provider, btn){
+    if(btn){ btn.disabled = true; btn.textContent = 'Syncing…'; }
+    try{
+      await api('syncUsage', {userId: session.userId});
+      await reloadState();
+    }catch(e){
+      alert('Sync failed: ' + (e.message || 'unknown error'));
+    }
+    if(btn){ btn.disabled = false; btn.textContent = 'Sync now'; }
+  }
+
+  async function removeProvider(provider){
+    try{
+      await api('deleteProviderKey', {userId: session.userId, provider: provider});
+      refreshProviderList();
+    }catch(e){}
+  }
+
+  els.saveKeyBtn.addEventListener('click', async function(){
+    const provider = els.liveProvider.value;
+    const apiKey = els.liveApiKey.value.trim();
+    if(!apiKey) return;
+    els.saveKeyBtn.disabled = true; els.saveKeyBtn.textContent = 'Saving…';
+    try{
+      const res = await api('saveProviderKey', {userId: session.userId, provider: provider, apiKey: apiKey});
+      if(!res.ok){
+        alert(res.error || 'Could not save key.');
+      } else {
+        els.liveApiKey.value = '';
+        els.saveKeyBtn.textContent = 'Syncing…';
+        await api('syncUsage', {userId: session.userId});
+        await refreshProviderList();
+        await reloadState();
+      }
+    }catch(e){
+      alert('Could not reach the API: ' + (e.message || 'unknown error'));
+    }
+    els.saveKeyBtn.disabled = false; els.saveKeyBtn.textContent = 'Save & sync';
+  });
+
+  async function reloadState(){
+    try{
+      const res = await api('getState', {userId: session.userId});
+      if(res.ok){
+        entries = res.entries || [];
+        budget = res.settings.budget || 0;
+        render();
+      }
     }catch(e){}
   }
 
@@ -744,6 +847,7 @@
     }catch(e){
       els.ledgerList.innerHTML = '<div class="empty">Could not load your data: ' + escapeHtml(e.message || 'unknown error') + '</div>';
     }
+    refreshProviderList();
     render();
   }
 
