@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KeyMeter — API cost ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#14161C; --panel:#1E212A; --panel-2:#262A35; --hair: rgba(255,255,255,0.08);
+    --text:#F2F3F7; --muted:#8B90A0; --accent:#7C9EFF; --amber:#FFB454; --mint:#5EEAD4; --coral:#FF7A7A;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'Space Grotesk', sans-serif; -webkit-font-smoothing:antialiased;}
+  .mono{font-family:'IBM Plex Mono', monospace;}
+  .wrap{max-width:760px; margin:0 auto; padding:clamp(24px,6vw,48px) clamp(14px,4vw,24px) clamp(48px,8vw,80px);}
+
+  /* ---------- auth screen ---------- */
+  #authScreen{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;}
+  .auth-card{width:100%; max-width:400px; background:var(--panel); border:1px solid var(--hair); border-radius:18px; padding:32px;}
+  .auth-word{font-size:24px; font-weight:700; text-align:center; margin-bottom:4px;}
+  .auth-word span{color:var(--accent);}
+  .auth-tagline{color:var(--muted); font-size:13px; text-align:center; margin-bottom:26px;}
+  .tabs{display:flex; background:var(--panel-2); border-radius:10px; padding:4px; margin-bottom:20px;}
+  .tab{flex:1; text-align:center; padding:8px; border-radius:8px; cursor:pointer; font-size:13.5px; color:var(--muted); font-weight:600;}
+  .tab.active{background:var(--accent); color:#0E1016;}
+  .auth-field{margin-bottom:14px;}
+  .auth-field label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px;}
+  .auth-field input{
+    width:100%; background:var(--panel-2); border:1px solid var(--hair); border-radius:9px;
+    padding:11px 12px; color:var(--text); font-family:inherit; font-size:14px; outline:none;
+  }
+  .auth-field input:focus{border-color:var(--accent);}
+  .auth-btn{
+    width:100%; background:var(--accent); color:#0E1016; border:none; border-radius:9px;
+    padding:12px; font-size:14px; font-weight:700; cursor:pointer; margin-top:6px; font-family:inherit;
+  }
+  .auth-btn:disabled{opacity:0.6; cursor:default;}
+  .auth-msg{font-size:13px; margin-top:14px; padding:10px 12px; border-radius:8px; display:none;}
+  .auth-msg.error{display:block; background:rgba(255,122,122,0.12); color:var(--coral);}
+  .auth-msg.info{display:block; background:rgba(124,158,255,0.12); color:var(--accent);}
+  .api-warning{font-size:12px; color:var(--amber); text-align:center; margin-top:16px; line-height:1.5;}
+
+  /* ---------- app screen (tracker) ---------- */
+  #appScreen{display:none;}
+  header{display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:36px; flex-wrap:wrap;}
+  .word{font-size:22px; font-weight:700; letter-spacing:-0.01em;}
+  .word span{color:var(--accent);}
+  .tagline{color:var(--muted); font-size:13.5px; margin-top:4px;}
+  .header-right{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  .budget-pill{display:flex; align-items:center; gap:8px; background:var(--panel); border:1px solid var(--hair); border-radius:100px; padding:8px 8px 8px 14px; flex-wrap:wrap;}
+  .budget-pill input{width:74px; background:transparent; border:none; color:var(--text); font-family:'IBM Plex Mono',monospace; font-size:13px; outline:none; text-align:right;}
+  .budget-pill label{font-size:12px; color:var(--muted); white-space:nowrap;}
+  .budget-pill select{background:var(--panel-2); border:1px solid var(--hair); border-radius:100px; color:var(--text); font-family:'IBM Plex Mono',monospace; font-size:12px; padding:5px 8px; outline:none; max-width:88px;}
+  .logout-btn{background:transparent; border:1px solid var(--hair); color:var(--muted); border-radius:100px; padding:7px 14px; font-size:12.5px; cursor:pointer; font-family:inherit;}
+
+  .hero{background:var(--panel); border:1px solid var(--hair); border-radius:18px; padding:clamp(20px,4vw,32px) clamp(18px,4vw,32px) clamp(18px,3vw,28px); margin-bottom:28px;}
+  .hero-top{display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap;}
+  .hero-label{color:var(--muted); font-size:13px; margin-bottom:6px;}
+  .hero-number{font-size:clamp(28px,8vw,52px); font-weight:600; line-height:1; letter-spacing:-0.02em; word-break:break-word;}
+  .hero-number .cents{font-size:0.5em; color:var(--muted);}
+  .hero-status{font-size:13px; padding:5px 11px; border-radius:100px; white-space:nowrap; margin-bottom:4px;}
+  .st-ok{background:rgba(94,234,212,0.12); color:var(--mint);}
+  .st-warn{background:rgba(255,180,84,0.14); color:var(--amber);}
+  .st-over{background:rgba(255,122,122,0.14); color:var(--coral);}
+  .track{height:6px; border-radius:100px; background:var(--panel-2); margin-top:18px; overflow:hidden;}
+  .track-fill{height:100%; border-radius:100px; background:var(--accent); width:0%; transition:width 0.6s cubic-bezier(.2,.7,.3,1), background 0.3s;}
+  .breakdown{margin-top:20px; display:flex; height:10px; border-radius:6px; overflow:hidden; background:var(--panel-2);}
+  .breakdown div{height:100%; transition:width 0.6s cubic-bezier(.2,.7,.3,1);}
+  .legend{display:flex; flex-wrap:wrap; gap:14px; margin-top:12px;}
+  .legend-item{display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--muted);}
+  .dot{width:8px; height:8px; border-radius:50%; flex-shrink:0;}
+  .onetime-note{margin-top:14px; font-size:12.5px; color:var(--muted);}
+  .alert-banner{display:none; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-top:18px; padding:14px 16px; border-radius:12px; background:rgba(255,122,122,0.12); border:1px solid rgba(255,122,122,0.3);}
+  .alert-banner.show{display:flex;}
+  .alert-banner p{margin:0; font-size:13.5px; color:var(--coral); flex:1 1 220px;}
+  .alert-banner a{font-size:13px; font-weight:600; color:#0E1016; background:var(--coral); padding:8px 14px; border-radius:9px; text-decoration:none; white-space:nowrap;}
+
+  .panel{background:var(--panel); border:1px solid var(--hair); border-radius:18px; padding:clamp(18px,4vw,26px); margin-bottom:28px;}
+  .panel h2{font-size:15px; margin:0 0 18px; font-weight:600; color:var(--text);}
+  form{display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:12px;}
+  .field{display:flex; flex-direction:column; gap:6px;}
+  .field.full{grid-column:1 / -1;}
+  .field label{font-size:12px; color:var(--muted);}
+  .field input, .field select{background:var(--panel-2); border:1px solid var(--hair); border-radius:9px; padding:10px 11px; color:var(--text); font-family:inherit; font-size:14px; outline:none; transition:border-color 0.15s;}
+  .field input:focus, .field select:focus{border-color:var(--accent);}
+  .field input.mono{font-family:'IBM Plex Mono',monospace;}
+  .form-actions{grid-column:1/-1; display:flex; gap:10px; margin-top:2px;}
+  button{font-family:'Space Grotesk', sans-serif; font-size:13.5px; font-weight:600; border-radius:9px; padding:10px 18px; border:none; cursor:pointer; transition:transform 0.1s, opacity 0.15s;}
+  button:active{transform:scale(0.97);}
+  .btn-primary{background:var(--accent); color:#0E1016;}
+  .btn-ghost{background:transparent; color:var(--muted); border:1px solid var(--hair);}
+  .btn-primary:hover{opacity:0.92;}
+
+  .ledger-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;}
+  .ledger-head h2{font-size:15px; font-weight:600; margin:0;}
+  .search{background:var(--panel); border:1px solid var(--hair); border-radius:9px; padding:8px 12px; font-size:13px; color:var(--text); font-family:inherit; outline:none; width:170px;}
+  .row{display:grid; grid-template-columns:1fr auto auto; align-items:center; gap:14px; padding:16px 4px; border-bottom:1px solid var(--hair);}
+  .row:last-child{border-bottom:none;}
+  .row-main{display:flex; align-items:center; gap:12px; min-width:0;}
+  .row-text{min-width:0;}
+  .row-model{font-size:14.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .row-meta{font-size:12px; color:var(--muted); margin-top:2px;}
+  .row-cycle{font-size:11px; color:var(--muted); background:var(--panel-2); padding:3px 9px; border-radius:100px; white-space:nowrap;}
+  .row-cost{font-family:'IBM Plex Mono',monospace; font-size:15px; font-weight:600; white-space:nowrap;}
+  .row-actions{display:flex; gap:6px;}
+  .icon-btn{background:none; border:none; color:var(--muted); cursor:pointer; padding:5px; border-radius:6px; font-size:13px; line-height:1;}
+  .icon-btn:hover{color:var(--text); background:var(--panel-2);}
+  .empty{text-align:center; padding:50px 20px; color:var(--muted); font-size:14px;}
+  .empty-big{font-size:32px; margin-bottom:10px;}
+  .alerts-row{display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;}
+  .alerts-row .field{flex:1 1 200px;}
+  .notif-status{font-size:12px; color:var(--muted); margin-top:6px;}
+  .notif-status.on{color:var(--mint);}
+  .notif-status.off{color:var(--coral);}
+  footer{text-align:center; color:var(--muted); font-size:12px; margin-top:36px;}
+
+  @media (max-width:560px){
+    .row{grid-template-columns:1fr auto;}
+    .row-cycle{display:none;}
+    .search{width:120px;}
+  }
+  @media (max-width:440px){
+    header{flex-direction:column; align-items:flex-start;}
+    .header-right{width:100%; justify-content:space-between;}
+    .budget-pill{flex:1 1 auto;}
+    .row{display:flex; flex-wrap:wrap; align-items:center; row-gap:8px;}
+    .row-main{flex:1 1 100%;}
+    .row-cost{margin-left:34px;}
+    .row-actions{margin-left:auto;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ LANDING / AUTH SCREEN ============ -->
+<div id="authScreen">
+  <div class="auth-card">
+    <div class="auth-word">Key<span>Meter</span></div>
+    <div class="auth-tagline">every API key you pay for, metered in one place</div>
+
+    <div class="tabs">
+      <div class="tab active" id="tabLogin">Sign in</div>
+      <div class="tab" id="tabRegister">Create account</div>
+    </div>
+
+    <form id="loginForm">
+      <div class="auth-field"><label>Email</label><input type="email" id="loginEmail" required></div>
+      <div class="auth-field"><label>Password</label><input type="password" id="loginPassword" required></div>
+      <button type="submit" class="auth-btn" id="loginBtn">Sign in</button>
+    </form>
+
+    <form id="registerForm" style="display:none;">
+      <div class="auth-field"><label>Your name</label><input type="text" id="regName" required></div>
+      <div class="auth-field"><label>Business name</label><input type="text" id="regBusiness"></div>
+      <div class="auth-field"><label>Email</label><input type="email" id="regEmail" required></div>
+      <div class="auth-field"><label>Password (min 6 characters)</label><input type="password" id="regPassword" minlength="6" required></div>
+      <button type="submit" class="auth-btn" id="registerBtn">Create account</button>
+    </form>
+
+    <div class="auth-msg" id="authMsg"></div>
+    <div class="api-warning" id="apiWarning" style="display:none;">
+      API_URL isn't set yet — open index.html and paste your deployed Apps Script Web app URL into the API_URL constant near the top of the script.
+    </div>
+  </div>
+</div>
+
+<!-- ============ MAIN APP (TRACKER) ============ -->
+<div id="appScreen">
+<div class="wrap">
+  <header>
+    <div>
+      <div class="word">Key<span>Meter</span></div>
+      <div class="tagline" id="welcomeLine">every API key you pay for, metered in one place</div>
+    </div>
+    <div class="header-right">
+      <div class="budget-pill">
+        <label for="budgetInput">Limit</label>
+        <select id="currencySelect" class="mono"></select>
+        <input type="number" id="budgetInput" class="mono" placeholder="0" min="0" step="1">
+        <label for="budgetInput">/mo</label>
+      </div>
+      <button class="logout-btn" id="logoutBtn">Log out</button>
+    </div>
+  </header>
+
+  <div class="hero">
+    <div class="hero-top">
+      <div>
+        <div class="hero-label">This month, across all keys</div>
+        <div class="hero-number mono" id="odometer">0</div>
+      </div>
+      <div class="hero-status st-ok" id="statusPill">no budget set</div>
+    </div>
+    <div class="track"><div class="track-fill" id="trackFill"></div></div>
+    <div class="breakdown" id="breakdown"></div>
+    <div class="legend" id="legend"></div>
+    <div class="onetime-note" id="onetimeNote"></div>
+    <div class="alert-banner" id="alertBanner">
+      <p id="alertBannerText">Your spend has crossed your set limit.</p>
+      <a href="#" id="emailAlertLink" target="_blank" rel="noopener">Open email alert</a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2 id="formTitle">Add an expense</h2>
+    <form id="entryForm">
+      <input type="hidden" id="editId">
+      <div class="field"><label for="provider">Provider</label><input type="text" id="provider" placeholder="OpenAI, Anthropic, Groq…" required autocomplete="off"></div>
+      <div class="field"><label for="model">Model / key label</label><input type="text" id="model" placeholder="gpt-4o, Claude Sonnet…" required autocomplete="off"></div>
+      <div class="field"><label for="cost" id="costLabel">Monthly cost</label><input type="number" id="cost" class="mono" placeholder="0.00" min="0" step="0.01" required></div>
+      <div class="field">
+        <label for="cycle">Billing type</label>
+        <select id="cycle">
+          <option value="usage">Usage-based (est.)</option>
+          <option value="subscription">Flat subscription</option>
+          <option value="onetime">One-time</option>
+        </select>
+      </div>
+      <div class="field full"><label for="notes">Notes (optional)</label><input type="text" id="notes" placeholder="what it's used for, rate limits, renewal date…"></div>
+      <div class="form-actions">
+        <button type="submit" class="btn-primary" id="submitBtn">Add expense</button>
+        <button type="button" class="btn-ghost" id="cancelEdit" style="display:none;">Cancel edit</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>Usage limit &amp; alerts</h2>
+    <div class="alerts-row">
+      <div class="field"><label for="alertEmail">Notify this email when over limit</label><input type="email" id="alertEmail" placeholder="founder@yourcompany.com" autocomplete="off"></div>
+      <div class="field" style="flex:0 0 auto;">
+        <button type="button" class="btn-ghost" id="enableNotifBtn">Enable browser alerts</button>
+        <div class="notif-status" id="notifStatus"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ledger-head">
+      <h2>Ledger</h2>
+      <input type="text" class="search" id="search" placeholder="Search…">
+    </div>
+    <div id="ledgerList"></div>
+  </div>
+
+  <footer>Stored in your Google Sheet — synced every time you add, edit or delete.</footer>
+</div>
+</div>
+
+<script>
+(function(){
+  // ============ CONFIG ============
+  // Paste your deployed Apps Script Web app URL here (see SETUP.md):
+  const API_URL = 'https://script.google.com/macros/s/AKfycbyzumrDxo8mOQQ3sHh6Vt-O31S-IVDf9nj5Rmzg3sYuF_2v4NHuO3L-OkFJC24qnsQrPQ/exec';
+
+  const USER_KEY = 'keymeter_user_v1';
+  const palette = ['#7C9EFF','#FFB454','#5EEAD4','#FF7A7A','#C792EA','#82D9A4','#F4A6C6','#8FB8FF'];
+
+  const CURRENCIES = [
+    ['USD','US Dollar'],['EUR','Euro'],['GBP','British Pound'],['INR','Indian Rupee'],
+    ['JPY','Japanese Yen'],['CNY','Chinese Yuan'],['AUD','Australian Dollar'],['CAD','Canadian Dollar'],
+    ['CHF','Swiss Franc'],['SEK','Swedish Krona'],['NOK','Norwegian Krone'],['DKK','Danish Krone'],
+    ['NZD','New Zealand Dollar'],['SGD','Singapore Dollar'],['HKD','Hong Kong Dollar'],['KRW','South Korean Won'],
+    ['TWD','Taiwan Dollar'],['THB','Thai Baht'],['MYR','Malaysian Ringgit'],['IDR','Indonesian Rupiah'],
+    ['PHP','Philippine Peso'],['VND','Vietnamese Dong'],['PKR','Pakistani Rupee'],['BDT','Bangladeshi Taka'],
+    ['LKR','Sri Lankan Rupee'],['NPR','Nepalese Rupee'],['AED','UAE Dirham'],['SAR','Saudi Riyal'],
+    ['QAR','Qatari Riyal'],['KWD','Kuwaiti Dinar'],['BHD','Bahraini Dinar'],['OMR','Omani Rial'],
+    ['ILS','Israeli Shekel'],['TRY','Turkish Lira'],['ZAR','South African Rand'],['NGN','Nigerian Naira'],
+    ['KES','Kenyan Shilling'],['EGP','Egyptian Pound'],['GHS','Ghanaian Cedi'],['MAD','Moroccan Dirham'],
+    ['BRL','Brazilian Real'],['MXN','Mexican Peso'],['ARS','Argentine Peso'],['CLP','Chilean Peso'],
+    ['COP','Colombian Peso'],['PEN','Peruvian Sol'],['UYU','Uruguayan Peso'],['RUB','Russian Ruble'],
+    ['UAH','Ukrainian Hryvnia'],['PLN','Polish Zloty'],['CZK','Czech Koruna'],['HUF','Hungarian Forint'],
+    ['RON','Romanian Leu'],['BGN','Bulgarian Lev'],['ISK','Icelandic Krona'],
+    ['JOD','Jordanian Dinar'],['LBP','Lebanese Pound'],
+    ['BND','Brunei Dollar'],['FJD','Fijian Dollar'],['XOF','West African CFA Franc'],['XAF','Central African CFA Franc'],
+    ['ETB','Ethiopian Birr'],['TZS','Tanzanian Shilling'],['UGX','Ugandan Shilling'],['ZMW','Zambian Kwacha'],
+    ['BWP','Botswana Pula'],['NAD','Namibian Dollar'],['MUR','Mauritian Rupee'],['DZD','Algerian Dinar'],
+    ['TND','Tunisian Dinar'],['RSD','Serbian Dinar'],
+    ['BOB','Bolivian Boliviano'],['PYG','Paraguayan Guarani'],['GTQ','Guatemalan Quetzal'],
+    ['CRC','Costa Rican Colon'],['DOP','Dominican Peso'],['JMD','Jamaican Dollar'],['TTD','Trinidad & Tobago Dollar']
+  ];
+
+  function detectDefaultCurrency(){
+    try{
+      const region = new Intl.Locale(navigator.language || 'en-US').maximize().region;
+      const map = {US:'USD',IN:'INR',GB:'GBP',CA:'CAD',AU:'AUD',NZ:'NZD',SG:'SGD',HK:'HKD',
+        JP:'JPY',CN:'CNY',KR:'KRW',TW:'TWD',TH:'THB',MY:'MYR',ID:'IDR',PH:'PHP',VN:'VND',
+        PK:'PKR',BD:'BDT',LK:'LKR',NP:'NPR',AE:'AED',SA:'SAR',QA:'QAR',KW:'KWD',BH:'BHD',OM:'OMR',
+        IL:'ILS',TR:'TRY',ZA:'ZAR',NG:'NGN',KE:'KES',EG:'EGP',GH:'GHS',MA:'MAD',BR:'BRL',MX:'MXN',
+        AR:'ARS',CL:'CLP',CO:'COP',PE:'PEN',RU:'RUB',UA:'UAH',PL:'PLN',CZ:'CZK',HU:'HUF',RO:'RON',
+        BG:'BGN',CH:'CHF',SE:'SEK',NO:'NOK',DK:'DKK',
+        DE:'EUR',FR:'EUR',IT:'EUR',ES:'EUR',NL:'EUR',BE:'EUR',AT:'EUR',IE:'EUR',PT:'EUR',FI:'EUR',
+        GR:'EUR',LU:'EUR',SK:'EUR',SI:'EUR',EE:'EUR',LV:'EUR',LT:'EUR',CY:'EUR',MT:'EUR'};
+      return map[region] || 'USD';
+    }catch(e){ return 'USD'; }
+  }
+
+  // ============ API helper ============
+  async function api(action, data){
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'text/plain;charset=utf-8'},
+      body: JSON.stringify(Object.assign({action:action}, data||{}))
+    });
+    return res.json();
+  }
+
+  // ============ AUTH SCREEN ============
+  const tabLogin = document.getElementById('tabLogin');
+  const tabRegister = document.getElementById('tabRegister');
+  const loginForm = document.getElementById('loginForm');
+  const registerForm = document.getElementById('registerForm');
+  const authMsg = document.getElementById('authMsg');
+  const apiWarning = document.getElementById('apiWarning');
+
+  if(!API_URL || API_URL.indexOf('PASTE_YOUR') === 0){
+    apiWarning.style.display = 'block';
+  }
+
+  tabLogin.onclick = function(){
+    tabLogin.classList.add('active'); tabRegister.classList.remove('active');
+    loginForm.style.display = 'block'; registerForm.style.display = 'none';
+    authMsg.className = 'auth-msg';
+  };
+  tabRegister.onclick = function(){
+    tabRegister.classList.add('active'); tabLogin.classList.remove('active');
+    registerForm.style.display = 'block'; loginForm.style.display = 'none';
+    authMsg.className = 'auth-msg';
+  };
+
+  function showAuthMsg(text, type){
+    authMsg.textContent = text;
+    authMsg.className = 'auth-msg ' + (type || 'error');
+  }
+
+  loginForm.addEventListener('submit', async function(ev){
+    ev.preventDefault();
+    const btn = document.getElementById('loginBtn');
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    try{
+      const res = await api('login', {
+        email: document.getElementById('loginEmail').value.trim(),
+        password: document.getElementById('loginPassword').value
+      });
+      if(res.ok){
+        saveSession(res);
+        enterApp();
+      } else {
+        showAuthMsg(res.error || 'Could not sign in.');
+      }
+    }catch(e){
+      showAuthMsg('Could not reach the API. Check API_URL and your deployment.');
+    }
+    btn.disabled = false; btn.textContent = 'Sign in';
+  });
+
+  registerForm.addEventListener('submit', async function(ev){
+    ev.preventDefault();
+    const btn = document.getElementById('registerBtn');
+    btn.disabled = true; btn.textContent = 'Creating account…';
+    try{
+      const res = await api('register', {
+        name: document.getElementById('regName').value.trim(),
+        businessName: document.getElementById('regBusiness').value.trim(),
+        email: document.getElementById('regEmail').value.trim(),
+        password: document.getElementById('regPassword').value
+      });
+      if(res.ok){
+        saveSession(res);
+        enterApp();
+      } else {
+        showAuthMsg(res.error || 'Could not create account.');
+      }
+    }catch(e){
+      showAuthMsg('Could not reach the API. Check API_URL and your deployment.');
+    }
+    btn.disabled = false; btn.textContent = 'Create account';
+  });
+
+  function saveSession(res){
+    try{
+      localStorage.setItem(USER_KEY, JSON.stringify({userId: res.userId, name: res.name, businessName: res.businessName}));
+    }catch(e){}
+  }
+  function loadSession(){
+    try{ return JSON.parse(localStorage.getItem(USER_KEY)); }catch(e){ return null; }
+  }
+  function clearSession(){
+    try{ localStorage.removeItem(USER_KEY); }catch(e){}
+  }
+
+  document.getElementById('logoutBtn').addEventListener('click', function(){
+    clearSession();
+    document.getElementById('appScreen').style.display = 'none';
+    document.getElementById('authScreen').style.display = 'flex';
+    showAuthMsg('');
+    authMsg.className = 'auth-msg';
+  });
+
+  // ============ APP STATE ============
+  let session = null;
+  let entries = [];
+  let budget = 0;
+  let currentCurrency = detectDefaultCurrency();
+  let lastTotal = 0;
+
+  function fmt(value){
+    try{ return new Intl.NumberFormat(undefined, {style:'currency', currency: currentCurrency}).format(value); }
+    catch(e){ return currentCurrency + ' ' + value.toFixed(2); }
+  }
+  function formatPartsHtml(value){
+    try{
+      const parts = new Intl.NumberFormat(undefined, {style:'currency', currency: currentCurrency}).formatToParts(value);
+      return parts.map(function(p){ return (p.type==='fraction'||p.type==='decimal') ? '<span class="cents">'+p.value+'</span>' : p.value; }).join('');
+    }catch(e){ return fmt(value); }
+  }
+  function hashColor(str){
+    let h = 0;
+    for(let i=0;i<str.length;i++){ h = (h*31 + str.charCodeAt(i)) >>> 0; }
+    return palette[h % palette.length];
+  }
+
+  const els = {
+    odometer: document.getElementById('odometer'),
+    trackFill: document.getElementById('trackFill'),
+    statusPill: document.getElementById('statusPill'),
+    breakdown: document.getElementById('breakdown'),
+    legend: document.getElementById('legend'),
+    onetimeNote: document.getElementById('onetimeNote'),
+    budgetInput: document.getElementById('budgetInput'),
+    currencySelect: document.getElementById('currencySelect'),
+    form: document.getElementById('entryForm'),
+    provider: document.getElementById('provider'),
+    model: document.getElementById('model'),
+    cost: document.getElementById('cost'),
+    cycle: document.getElementById('cycle'),
+    notes: document.getElementById('notes'),
+    editId: document.getElementById('editId'),
+    submitBtn: document.getElementById('submitBtn'),
+    cancelEdit: document.getElementById('cancelEdit'),
+    formTitle: document.getElementById('formTitle'),
+    costLabel: document.getElementById('costLabel'),
+    ledgerList: document.getElementById('ledgerList'),
+    search: document.getElementById('search'),
+    alertBanner: document.getElementById('alertBanner'),
+    alertBannerText: document.getElementById('alertBannerText'),
+    emailAlertLink: document.getElementById('emailAlertLink'),
+    alertEmail: document.getElementById('alertEmail'),
+    enableNotifBtn: document.getElementById('enableNotifBtn'),
+    notifStatus: document.getElementById('notifStatus'),
+    welcomeLine: document.getElementById('welcomeLine'),
+  };
+
+  CURRENCIES.forEach(function(c){
+    const opt = document.createElement('option');
+    opt.value = c[0]; opt.textContent = c[0]; opt.title = c[1];
+    els.currencySelect.appendChild(opt);
+  });
+
+  function updateCostLabel(){ els.costLabel.textContent = 'Monthly cost (' + currentCurrency + ')'; }
+
+  els.currencySelect.addEventListener('change', function(){
+    currentCurrency = els.currencySelect.value;
+    updateCostLabel();
+    saveSettingsToApi();
+    render();
+  });
+  els.budgetInput.addEventListener('change', function(){
+    budget = parseFloat(els.budgetInput.value) || 0;
+    saveSettingsToApi();
+    render();
+  });
+  els.alertEmail.addEventListener('change', saveSettingsToApi);
+
+  async function saveSettingsToApi(){
+    if(!session) return;
+    try{
+      await api('saveSettings', {
+        userId: session.userId, budget: budget, currency: currentCurrency,
+        alertEmail: els.alertEmail.value.trim()
+      });
+    }catch(e){}
+  }
+
+  function refreshNotifStatus(){
+    if(!('Notification' in window)){
+      els.notifStatus.textContent = 'Not supported in this browser';
+      els.notifStatus.className = 'notif-status off';
+      els.enableNotifBtn.style.display = 'none';
+      return;
+    }
+    if(Notification.permission === 'granted'){
+      els.notifStatus.textContent = 'Browser alerts are on';
+      els.notifStatus.className = 'notif-status on';
+      els.enableNotifBtn.textContent = 'Browser alerts on';
+    } else if(Notification.permission === 'denied'){
+      els.notifStatus.textContent = 'Blocked — enable notifications for this site in your browser settings';
+      els.notifStatus.className = 'notif-status off';
+    } else {
+      els.notifStatus.textContent = '';
+      els.enableNotifBtn.textContent = 'Enable browser alerts';
+    }
+  }
+  els.enableNotifBtn.addEventListener('click', function(){
+    if(!('Notification' in window)) return;
+    Notification.requestPermission().then(refreshNotifStatus);
+  });
+
+  let notifiedOver = false;
+  function handleLimitState(status, total, budgetVal){
+    if(status === 'over'){
+      if(!notifiedOver){
+        notifiedOver = true;
+        if('Notification' in window && Notification.permission === 'granted'){
+          try{ new Notification('KeyMeter: usage limit crossed', {body: 'Spend is ' + fmt(total) + ', over your ' + fmt(budgetVal) + ' limit.'}); }catch(e){}
+        }
+      }
+      els.alertBannerText.textContent = 'Spend is ' + fmt(total) + ' — over your ' + fmt(budgetVal) + ' limit.';
+      const email = els.alertEmail.value.trim();
+      const subject = encodeURIComponent('KeyMeter alert: API spend over your limit');
+      const body = encodeURIComponent('Your API spend this month is ' + fmt(total) + ', which is over your set limit of ' + fmt(budgetVal) + '.\n\nCheck the full breakdown in KeyMeter.');
+      els.emailAlertLink.href = 'mailto:' + encodeURIComponent(email) + '?subject=' + subject + '&body=' + body;
+      els.alertBanner.classList.add('show');
+    } else {
+      notifiedOver = false;
+      els.alertBanner.classList.remove('show');
+    }
+  }
+
+  function animateOdometer(target){
+    const start = lastTotal;
+    const duration = 700;
+    const t0 = performance.now();
+    function frame(now){
+      const p = Math.min(1, (now - t0) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      const val = start + (target - start) * eased;
+      els.odometer.innerHTML = formatPartsHtml(val);
+      if(p < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    lastTotal = target;
+  }
+
+  function cycleLabel(c){ return c === 'subscription' ? 'Subscription' : c === 'onetime' ? 'One-time' : 'Usage-based'; }
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+  function render(){
+    const recurring = entries.filter(function(e){ return e.cycle !== 'onetime'; });
+    const onetime = entries.filter(function(e){ return e.cycle === 'onetime'; });
+    const total = recurring.reduce(function(s,e){ return s + e.cost; }, 0);
+    const onetimeTotal = onetime.reduce(function(s,e){ return s + e.cost; }, 0);
+
+    animateOdometer(total);
+
+    let status = 'none';
+    if(budget > 0){
+      const pct = Math.min(100, (total / budget) * 100);
+      els.trackFill.style.width = pct + '%';
+      if(total <= budget * 0.8){
+        status = 'ok'; els.trackFill.style.background = 'var(--mint)';
+        els.statusPill.className = 'hero-status st-ok'; els.statusPill.textContent = 'under budget';
+      } else if(total <= budget){
+        status = 'warn'; els.trackFill.style.background = 'var(--amber)';
+        els.statusPill.className = 'hero-status st-warn'; els.statusPill.textContent = 'near budget';
+      } else {
+        status = 'over'; els.trackFill.style.background = 'var(--coral)';
+        els.statusPill.className = 'hero-status st-over'; els.statusPill.textContent = 'over budget';
+      }
+    } else {
+      els.trackFill.style.width = '0%';
+      els.statusPill.className = 'hero-status st-ok'; els.statusPill.textContent = 'no budget set';
+    }
+    handleLimitState(status, total, budget);
+
+    const byProvider = {};
+    recurring.forEach(function(e){ byProvider[e.provider] = (byProvider[e.provider] || 0) + e.cost; });
+    const providers = Object.keys(byProvider).sort(function(a,b){ return byProvider[b] - byProvider[a]; });
+    els.breakdown.innerHTML = ''; els.legend.innerHTML = '';
+    if(total > 0){
+      providers.forEach(function(p){
+        const seg = document.createElement('div');
+        seg.style.width = (byProvider[p] / total * 100) + '%';
+        seg.style.background = hashColor(p);
+        els.breakdown.appendChild(seg);
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML = '<span class="dot" style="background:'+hashColor(p)+'"></span>' + p + ' <span class="mono">' + fmt(byProvider[p]) + '</span>';
+        els.legend.appendChild(item);
+      });
+    }
+    els.onetimeNote.textContent = onetimeTotal > 0 ? 'Plus ' + fmt(onetimeTotal) + ' in one-time costs, not counted above.' : '';
+
+    renderLedger();
+  }
+
+  function renderLedger(){
+    const q = els.search.value.trim().toLowerCase();
+    const filtered = entries
+      .filter(function(e){ return !q || (e.provider+' '+e.model+' '+(e.notes||'')).toLowerCase().includes(q); })
+      .sort(function(a,b){ return b.cost - a.cost; });
+
+    els.ledgerList.innerHTML = '';
+    if(filtered.length === 0){
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.innerHTML = '<div class="empty-big">◌</div>' + (entries.length === 0 ? 'Nothing metered yet. Add your first API expense above.' : 'No entries match that search.');
+      els.ledgerList.appendChild(empty);
+      return;
+    }
+
+    filtered.forEach(function(e){
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML =
+        '<div class="row-main"><span class="dot" style="background:'+hashColor(e.provider)+'"></span>' +
+          '<div class="row-text"><div class="row-model">'+escapeHtml(e.model)+'</div>' +
+          '<div class="row-meta">'+escapeHtml(e.provider)+(e.notes ? ' · ' + escapeHtml(e.notes) : '')+'</div></div></div>' +
+        '<div class="row-cycle">'+cycleLabel(e.cycle)+'</div>' +
+        '<div class="row-cost mono">'+fmt(e.cost)+'</div>';
+      const actions = document.createElement('div');
+      actions.className = 'row-actions';
+      const editBtn = document.createElement('button'); editBtn.className='icon-btn'; editBtn.textContent='✎';
+      editBtn.onclick = function(){ startEdit(e.id); };
+      const delBtn = document.createElement('button'); delBtn.className='icon-btn'; delBtn.textContent='✕';
+      delBtn.onclick = function(){ deleteEntry(e.id); };
+      actions.appendChild(editBtn); actions.appendChild(delBtn);
+      row.appendChild(actions);
+      els.ledgerList.appendChild(row);
+    });
+  }
+
+  function startEdit(id){
+    const e = entries.find(function(x){ return x.id === id; });
+    if(!e) return;
+    els.editId.value = e.id;
+    els.provider.value = e.provider; els.model.value = e.model; els.cost.value = e.cost;
+    els.cycle.value = e.cycle; els.notes.value = e.notes || '';
+    els.formTitle.textContent = 'Edit expense';
+    els.submitBtn.textContent = 'Save changes';
+    els.cancelEdit.style.display = 'inline-block';
+    els.provider.focus();
+    window.scrollTo({top: els.form.getBoundingClientRect().top + window.scrollY - 20, behavior:'smooth'});
+  }
+  function resetForm(){
+    els.form.reset(); els.editId.value = '';
+    els.formTitle.textContent = 'Add an expense'; els.submitBtn.textContent = 'Add expense';
+    els.cancelEdit.style.display = 'none';
+  }
+
+  async function deleteEntry(id){
+    entries = entries.filter(function(e){ return e.id !== id; });
+    render();
+    try{ await api('deleteEntry', {userId: session.userId, id: id}); }catch(e){}
+  }
+
+  els.form.addEventListener('submit', async function(ev){
+    ev.preventDefault();
+    const data = {
+      provider: els.provider.value.trim(), model: els.model.value.trim(),
+      cost: parseFloat(els.cost.value) || 0, cycle: els.cycle.value, notes: els.notes.value.trim()
+    };
+    if(!data.provider || !data.model) return;
+    els.submitBtn.disabled = true;
+
+    if(els.editId.value){
+      const idx = entries.findIndex(function(e){ return e.id === els.editId.value; });
+      if(idx > -1) entries[idx] = Object.assign(entries[idx], data);
+      render(); resetForm();
+      try{ await api('updateEntry', Object.assign({userId: session.userId, id: els.editId.value}, data)); }catch(e){}
+    } else {
+      const tempId = 'temp' + Date.now();
+      entries.push(Object.assign({id: tempId}, data));
+      render(); resetForm();
+      try{
+        const res = await api('addEntry', Object.assign({userId: session.userId}, data));
+        if(res.ok){
+          const idx = entries.findIndex(function(e){ return e.id === tempId; });
+          if(idx > -1) entries[idx].id = res.id;
+        }
+      }catch(e){}
+    }
+    els.submitBtn.disabled = false;
+  });
+  els.cancelEdit.addEventListener('click', resetForm);
+  els.search.addEventListener('input', renderLedger);
+
+  // ============ ENTER APP ============
+  async function enterApp(){
+    session = loadSession();
+    if(!session){ return; }
+    document.getElementById('authScreen').style.display = 'none';
+    document.getElementById('appScreen').style.display = 'block';
+    els.welcomeLine.textContent = (session.businessName ? session.businessName + ' — ' : '') + 'every API key you pay for, metered in one place';
+    refreshNotifStatus();
+    updateCostLabel();
+
+    try{
+      const res = await api('getState', {userId: session.userId});
+      if(res.ok){
+        entries = res.entries || [];
+        budget = res.settings.budget || 0;
+        currentCurrency = res.settings.currency || currentCurrency;
+        els.alertEmail.value = res.settings.alertEmail || '';
+        els.budgetInput.value = budget || '';
+        els.currencySelect.value = currentCurrency;
+        updateCostLabel();
+      }
+    }catch(e){
+      els.ledgerList.innerHTML = '<div class="empty">Could not load your data — check your internet connection and API_URL.</div>';
+    }
+    render();
+  }
+
+  // On load, if a session is already saved, skip straight to the app.
+  const existing = loadSession();
+  if(existing && !(!API_URL || API_URL.indexOf('PASTE_YOUR') === 0)){
+    enterApp();
+  }
+})();
+</script>
+</body>
+</html>
