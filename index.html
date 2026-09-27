@@ -42,7 +42,6 @@
   .auth-msg{font-size:13px; margin-top:14px; padding:10px 12px; border-radius:8px; display:none;}
   .auth-msg.error{display:block; background:rgba(255,122,122,0.12); color:var(--coral);}
   .auth-msg.info{display:block; background:rgba(124,158,255,0.12); color:var(--accent);}
-  .api-warning{font-size:12px; color:var(--amber); text-align:center; margin-top:16px; line-height:1.5;}
 
   /* ---------- app screen (tracker) ---------- */
   #appScreen{display:none;}
@@ -147,7 +146,7 @@
     <div class="auth-word">Key<span>Meter</span></div>
     <div class="auth-tagline">every API key you pay for, metered in one place</div>
 
-    <div class="tabs">
+    <div class="tabs" id="authTabs">
       <div class="tab active" id="tabLogin">Sign in</div>
       <div class="tab" id="tabRegister">Create account</div>
     </div>
@@ -167,9 +166,6 @@
     </form>
 
     <div class="auth-msg" id="authMsg"></div>
-    <div class="api-warning" id="apiWarning" style="display:none;">
-      API_URL isn't set yet — open index.html and paste your deployed Apps Script Web app URL into the API_URL constant near the top of the script.
-    </div>
   </div>
 </div>
 
@@ -236,18 +232,35 @@
   <div class="panel">
     <h2>Live usage &amp; alerts</h2>
     <p style="font-size:12.5px; color:var(--muted); margin:-8px 0 16px;">
-      Connect a provider's admin API key to pull real spend automatically instead of typing it in.
-      Currently supported: <strong>OpenAI</strong> (needs an Admin key from
-      platform.openai.com/settings/organization/admin-keys, not a regular project key).
+      Add any provider you use — pick from the list or choose "Other" to type a name. Automatic
+      live-usage syncing is currently verified for <strong>OpenAI</strong> only (needs an Admin key from
+      platform.openai.com/settings/organization/admin-keys, not a regular project key); other providers
+      are saved for your own reference and will start auto-syncing once support is added.
     </p>
     <div class="alerts-row" style="margin-bottom:14px;">
-      <div class="field" style="flex:0 0 130px;">
+      <div class="field" style="flex:0 0 160px;">
         <label for="liveProvider">Provider</label>
-        <select id="liveProvider"><option value="openai">OpenAI</option></select>
+        <select id="liveProvider">
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="google">Google (Gemini)</option>
+          <option value="azure-openai">Azure OpenAI</option>
+          <option value="aws-bedrock">AWS Bedrock</option>
+          <option value="cohere">Cohere</option>
+          <option value="mistral">Mistral</option>
+          <option value="groq">Groq</option>
+          <option value="perplexity">Perplexity</option>
+          <option value="__custom__">Other (type name)…</option>
+        </select>
       </div>
-      <div class="field"><label for="liveApiKey">Admin API key</label><input type="password" id="liveApiKey" placeholder="sk-admin-…" autocomplete="off"></div>
+      <div class="field" id="customProviderField" style="display:none;">
+        <label for="liveProviderCustom">Provider name</label>
+        <input type="text" id="liveProviderCustom" placeholder="e.g. Fireworks, Together AI…" autocomplete="off">
+      </div>
+      <div class="field"><label for="liveApiKey">API key</label><input type="password" id="liveApiKey" placeholder="paste key…" autocomplete="off"></div>
       <div class="field" style="flex:0 0 auto;"><button type="button" class="btn-primary" id="saveKeyBtn">Save &amp; sync</button></div>
     </div>
+    <div id="syncNote" style="font-size:12px; color:var(--muted); margin:-6px 0 14px;"></div>
     <div id="providerList"></div>
     <div class="alerts-row">
       <div class="field"><label for="alertEmail">Notify this email when over limit</label><input type="email" id="alertEmail" placeholder="founder@yourcompany.com" autocomplete="off"></div>
@@ -273,7 +286,10 @@
 <script>
 (function(){
   // ============ CONFIG ============
-  // Paste your deployed Apps Script Web app URL here (see SETUP.md):
+  // Paste your deployed Apps Script Web app URL here before hosting.
+  // Everyone who opens this page goes straight to Sign in / Create
+  // account — there's no in-app setup step, so this must be filled in
+  // before you deploy it for real use.
   const API_URL = 'https://script.google.com/macros/s/AKfycbyzumrDxo8mOQQ3sHh6Vt-O31S-IVDf9nj5Rmzg3sYuF_2v4NHuO3L-OkFJC24qnsQrPQ/exec';
 
   const USER_KEY = 'keymeter_user_v1';
@@ -358,16 +374,12 @@
   }
 
   // ============ AUTH SCREEN ============
+  const authTabs = document.getElementById('authTabs');
   const tabLogin = document.getElementById('tabLogin');
   const tabRegister = document.getElementById('tabRegister');
   const loginForm = document.getElementById('loginForm');
   const registerForm = document.getElementById('registerForm');
   const authMsg = document.getElementById('authMsg');
-  const apiWarning = document.getElementById('apiWarning');
-
-  if(!API_URL || API_URL.indexOf('PASTE_YOUR') === 0){
-    apiWarning.style.display = 'block';
-  }
 
   tabLogin.onclick = function(){
     tabLogin.classList.add('active'); tabRegister.classList.remove('active');
@@ -385,50 +397,66 @@
     authMsg.className = 'auth-msg ' + (type || 'error');
   }
 
-  loginForm.addEventListener('submit', async function(ev){
+  // Only shows a "still connecting" message if the call genuinely takes
+  // a while — fast responses never flash any extra text, slow ones get
+  // an honest heads-up instead of looking frozen.
+  function withSlowNotice(fn){
+    const timer = setTimeout(function(){
+      showAuthMsg('Still connecting — Apps Script can take a few seconds…', 'info');
+    }, 700);
+    return fn().finally(function(){ clearTimeout(timer); });
+  }
+
+  loginForm.addEventListener('submit', function(ev){
     ev.preventDefault();
     const btn = document.getElementById('loginBtn');
     btn.disabled = true; btn.textContent = 'Signing in…';
-    showAuthMsg('Contacting your Sheet — this can take a few seconds…', 'info');
-    try{
-      const res = await api('login', {
+    authMsg.className = 'auth-msg';
+    withSlowNotice(function(){
+      return api('login', {
         email: document.getElementById('loginEmail').value.trim(),
         password: document.getElementById('loginPassword').value
       });
+    }).then(function(res){
       if(res.ok){
+        authMsg.className = 'auth-msg';
         saveSession(res);
-        enterApp();
+        enterApp(res);
       } else {
         showAuthMsg(res.error || 'Could not sign in.');
       }
-    }catch(e){
+    }).catch(function(e){
       showAuthMsg(e.message || 'Could not reach the API.');
-    }
-    btn.disabled = false; btn.textContent = 'Sign in';
+    }).finally(function(){
+      btn.disabled = false; btn.textContent = 'Sign in';
+    });
   });
 
-  registerForm.addEventListener('submit', async function(ev){
+  registerForm.addEventListener('submit', function(ev){
     ev.preventDefault();
     const btn = document.getElementById('registerBtn');
     btn.disabled = true; btn.textContent = 'Creating account…';
-    showAuthMsg('Writing to your Sheet — this can take a few seconds…', 'info');
-    try{
-      const res = await api('register', {
+    authMsg.className = 'auth-msg';
+    withSlowNotice(function(){
+      return api('register', {
         name: document.getElementById('regName').value.trim(),
         businessName: document.getElementById('regBusiness').value.trim(),
         email: document.getElementById('regEmail').value.trim(),
         password: document.getElementById('regPassword').value
       });
+    }).then(function(res){
       if(res.ok){
+        authMsg.className = 'auth-msg';
         saveSession(res);
-        enterApp();
+        enterApp(res);
       } else {
         showAuthMsg(res.error || 'Could not create account.');
       }
-    }catch(e){
+    }).catch(function(e){
       showAuthMsg((e.message || 'Could not reach the API.') + ' If you retried after a timeout, check the Users tab first — it may have already been created.');
-    }
-    btn.disabled = false; btn.textContent = 'Create account';
+    }).finally(function(){
+      btn.disabled = false; btn.textContent = 'Create account';
+    });
   });
 
   function saveSession(res){
@@ -504,8 +532,11 @@
     notifStatus: document.getElementById('notifStatus'),
     welcomeLine: document.getElementById('welcomeLine'),
     liveProvider: document.getElementById('liveProvider'),
+    liveProviderCustom: document.getElementById('liveProviderCustom'),
+    customProviderField: document.getElementById('customProviderField'),
     liveApiKey: document.getElementById('liveApiKey'),
     saveKeyBtn: document.getElementById('saveKeyBtn'),
+    syncNote: document.getElementById('syncNote'),
     providerList: document.getElementById('providerList'),
   };
 
@@ -540,36 +571,39 @@
     }catch(e){}
   }
 
+  function renderProviderList(list){
+    els.providerList.innerHTML = '';
+    if(!list.length){
+      els.providerList.innerHTML = '<div style="font-size:12.5px;color:var(--muted);padding:6px 0;">No providers connected yet.</div>';
+      return;
+    }
+    list.forEach(function(pr){
+      const row = document.createElement('div');
+      row.className = 'provider-row';
+      row.innerHTML = '<div><span class="pname">'+escapeHtml(pr.provider)+'</span> <span class="pkey">'+escapeHtml(pr.maskedKey)+'</span></div>';
+      const actions = document.createElement('div');
+      actions.className = 'pactions';
+      const syncBtn = document.createElement('button');
+      syncBtn.className = 'btn-ghost'; syncBtn.textContent = 'Sync now'; syncBtn.type = 'button';
+      syncBtn.onclick = function(){ syncOneProvider(syncBtn); };
+      const rmBtn = document.createElement('button');
+      rmBtn.className = 'icon-btn'; rmBtn.textContent = '✕'; rmBtn.type = 'button';
+      rmBtn.onclick = function(){ removeProvider(pr.provider); };
+      actions.appendChild(syncBtn); actions.appendChild(rmBtn);
+      row.appendChild(actions);
+      els.providerList.appendChild(row);
+    });
+  }
+
   async function refreshProviderList(){
     if(!session) return;
     try{
       const res = await api('listProviderKeys', {userId: session.userId});
-      if(!res.ok) return;
-      els.providerList.innerHTML = '';
-      if(!res.providers.length){
-        els.providerList.innerHTML = '<div style="font-size:12.5px;color:var(--muted);padding:6px 0;">No providers connected yet.</div>';
-        return;
-      }
-      res.providers.forEach(function(pr){
-        const row = document.createElement('div');
-        row.className = 'provider-row';
-        row.innerHTML = '<div><span class="pname">'+escapeHtml(pr.provider)+'</span> <span class="pkey">'+escapeHtml(pr.maskedKey)+'</span></div>';
-        const actions = document.createElement('div');
-        actions.className = 'pactions';
-        const syncBtn = document.createElement('button');
-        syncBtn.className = 'btn-ghost'; syncBtn.textContent = 'Sync now'; syncBtn.type = 'button';
-        syncBtn.onclick = function(){ syncOneProvider(pr.provider, syncBtn); };
-        const rmBtn = document.createElement('button');
-        rmBtn.className = 'icon-btn'; rmBtn.textContent = '✕'; rmBtn.type = 'button';
-        rmBtn.onclick = function(){ removeProvider(pr.provider); };
-        actions.appendChild(syncBtn); actions.appendChild(rmBtn);
-        row.appendChild(actions);
-        els.providerList.appendChild(row);
-      });
+      if(res.ok) renderProviderList(res.providers);
     }catch(e){}
   }
 
-  async function syncOneProvider(provider, btn){
+  async function syncOneProvider(btn){
     if(btn){ btn.disabled = true; btn.textContent = 'Syncing…'; }
     try{
       await api('syncUsage', {userId: session.userId});
@@ -587,19 +621,42 @@
     }catch(e){}
   }
 
+  els.liveProvider.addEventListener('change', function(){
+    const isCustom = els.liveProvider.value === '__custom__';
+    els.customProviderField.style.display = isCustom ? 'flex' : 'none';
+  });
+
+  function resolveProviderName(){
+    if(els.liveProvider.value === '__custom__') return els.liveProviderCustom.value.trim();
+    return els.liveProvider.options[els.liveProvider.selectedIndex].textContent.trim();
+  }
+  // The select's value (e.g. "openai") is what the backend matches
+  // against its supported-sync list; the visible label is what gets
+  // stored/displayed. For custom entries there's no separate code.
+  function resolveProviderValue(){
+    return els.liveProvider.value === '__custom__' ? resolveProviderName() : els.liveProvider.value;
+  }
+
   els.saveKeyBtn.addEventListener('click', async function(){
-    const provider = els.liveProvider.value;
+    const provider = resolveProviderValue();
     const apiKey = els.liveApiKey.value.trim();
-    if(!apiKey) return;
+    if(!provider){ alert('Enter a provider name.'); return; }
+    if(!apiKey){ alert('Enter an API key.'); return; }
     els.saveKeyBtn.disabled = true; els.saveKeyBtn.textContent = 'Saving…';
+    els.syncNote.textContent = '';
     try{
       const res = await api('saveProviderKey', {userId: session.userId, provider: provider, apiKey: apiKey});
       if(!res.ok){
         alert(res.error || 'Could not save key.');
       } else {
         els.liveApiKey.value = '';
-        els.saveKeyBtn.textContent = 'Syncing…';
-        await api('syncUsage', {userId: session.userId});
+        if(res.autoSyncSupported){
+          els.saveKeyBtn.textContent = 'Syncing…';
+          await api('syncUsage', {userId: session.userId});
+          els.syncNote.textContent = '';
+        } else {
+          els.syncNote.textContent = provider + ' saved — automatic syncing isn\'t available for it yet, so this entry stays manual until support is added.';
+        }
         await refreshProviderList();
         await reloadState();
       }
@@ -823,8 +880,19 @@
   els.cancelEdit.addEventListener('click', resetForm);
   els.search.addEventListener('input', renderLedger);
 
+  function applyState(res){
+    entries = res.entries || [];
+    budget = (res.settings && res.settings.budget) || 0;
+    currentCurrency = (res.settings && res.settings.currency) || currentCurrency;
+    els.alertEmail.value = (res.settings && res.settings.alertEmail) || '';
+    els.budgetInput.value = budget || '';
+    els.currencySelect.value = currentCurrency;
+    updateCostLabel();
+    renderProviderList(res.providers || []);
+  }
+
   // ============ ENTER APP ============
-  async function enterApp(){
+  async function enterApp(preloaded){
     session = loadSession();
     if(!session){ return; }
     document.getElementById('authScreen').style.display = 'none';
@@ -833,27 +901,24 @@
     refreshNotifStatus();
     updateCostLabel();
 
-    try{
-      const res = await api('getState', {userId: session.userId});
-      if(res.ok){
-        entries = res.entries || [];
-        budget = res.settings.budget || 0;
-        currentCurrency = res.settings.currency || currentCurrency;
-        els.alertEmail.value = res.settings.alertEmail || '';
-        els.budgetInput.value = budget || '';
-        els.currencySelect.value = currentCurrency;
-        updateCostLabel();
+    if(preloaded){
+      // Login/register already returned the full state in the same
+      // call — skip the extra getState + listProviderKeys round trips.
+      applyState(preloaded);
+    } else {
+      try{
+        const res = await api('getState', {userId: session.userId});
+        if(res.ok) applyState(res);
+      }catch(e){
+        els.ledgerList.innerHTML = '<div class="empty">Could not load your data: ' + escapeHtml(e.message || 'unknown error') + '</div>';
       }
-    }catch(e){
-      els.ledgerList.innerHTML = '<div class="empty">Could not load your data: ' + escapeHtml(e.message || 'unknown error') + '</div>';
     }
-    refreshProviderList();
     render();
   }
 
   // On load, if a session is already saved, skip straight to the app.
   const existing = loadSession();
-  if(existing && !(!API_URL || API_URL.indexOf('PASTE_YOUR') === 0)){
+  if(existing && API_URL && API_URL.indexOf('PASTE_YOUR') !== 0){
     enterApp();
   }
 })();
